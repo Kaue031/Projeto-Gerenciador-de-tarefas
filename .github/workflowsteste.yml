@@ -1,0 +1,112 @@
+name: CI - Full checks (robusto)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  full:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.10, 3.11]
+        node-version: [18]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Set up Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Upgrade pip and install Python deps
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
+        pip install flake8 pytest || true
+
+    - name: Lint Python with flake8 (if .py files exist)
+      run: |
+        shopt -s globstar || true
+        PY_FILES=(**/*.py)
+        if [ ${#PY_FILES[@]} -gt 0 ]; then
+          echo "Executando flake8..."
+          flake8 || (echo "flake8 encontrou problemas" && exit 1)
+        else
+          echo "Nenhum arquivo Python encontrado - pulando flake8."
+        fi
+
+    - name: Smoke test (import app and GET /)
+      env:
+        FLASK_ENV: testing
+      run: |
+        python - <<'PY'
+import sys
+try:
+    import flask
+    # importa o app. Certifique-se que app.py não rode servidor no import
+    from app import app
+    client = app.test_client()
+    resp = client.get('/')
+    print("Status / ->", resp.status_code)
+    if resp.status_code != 200:
+        print("Resposta inesperada em /:", resp.status_code, resp.data[:300])
+        sys.exit(2)
+    print("Smoke test OK")
+except Exception as e:
+    print("Erro no smoke test:", e)
+    sys.exit(1)
+PY
+
+    - name: Run pytest (if tests exist)
+      run: |
+        if [ -d "tests" ] || [ -f "pytest.ini" ] || ls **/test_*.py 1> /dev/null 2>&1; then
+          pytest -q || (echo "pytest falhou" && exit 1)
+        else
+          echo "Nenhum pytest detectado - pulando."
+        fi
+
+    - name: Install HTML/CSS linters globally (npm)
+      run: |
+        npm install -g htmlhint stylelint stylelint-config-standard
+
+    - name: HTML: htmlhint (if templates exist)
+      run: |
+        shopt -s globstar || true
+        HTML_FILES=(templates/**/*.html)
+        if [ ${#HTML_FILES[@]} -gt 0 ]; then
+          echo "Rodando htmlhint..."
+          htmlhint "templates/**/*.html" || (echo "htmlhint encontrou problemas" && exit 1)
+        else
+          echo "Nenhum HTML em templates/ - pulando htmlhint."
+        fi
+
+    - name: CSS: stylelint (if css exist)
+      run: |
+        shopt -s globstar || true
+        CSS_FILES=(static/**/*.css)
+        if [ ${#CSS_FILES[@]} -gt 0 ]; then
+          # cria config temporário se não existir
+          if [ ! -f .stylelintrc.json ]; then
+            cat > .stylelintrc.json <<'JSON'
+{
+  "extends": "stylelint-config-standard",
+  "rules": {}
+}
+JSON
+          fi
+          echo "Rodando stylelint..."
+          stylelint "static/**/*.css" || (echo "stylelint encontrou problemas" && exit 1)
+        else
+          echo "Nenhum CSS em static/ - pulando stylelint."
+        fi
