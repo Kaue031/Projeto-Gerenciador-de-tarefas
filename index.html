@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+  <a class="btn" href="/add">+ Nova tarefa</a>
+  <ul class="tasks">
+    {% for t in tasks %}
+      <li>
+        {{t['id']}} - {{t['title']}}
+        <span class="task-actions">
+          <a href="/task/{{t['id']}}">ver</a>
+          <a href="/edit/{{t['id']}}">editar</a>
+        </span>
+      </li>
+    {% else %}
+      <li>Nenhuma tarefa</li>
+    {% endfor %}
+  </ul>
+{% endblock %}

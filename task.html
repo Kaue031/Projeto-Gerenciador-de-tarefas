@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>{{t['title']}}</h2>
+  <p>{{t['desc']}}</p>
+  <div style="margin-top:12px;">
+    <a class="btn" href="/">Voltar</a>
+    <a class="btn" href="/edit/{{t['id']}}">Editar</a>
+    <form style="display:inline" method="post" action="/delete/{{t['id']}}">
+      <button class="btn" type="submit">Excluir</button>
+    </form>
+  </div>
+{% endblock %}

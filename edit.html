@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block content %}
+  <form action="/update/{{t['id']}}" method="post" class="form">
+    <label>Título</label>
+    <input name="title" required value="{{t['title']}}">
+    <label>Descrição</label>
+    <textarea name="desc">{{t['desc']}}</textarea>
+    <button class="btn" type="submit">Salvar</button>
+  </form>
+{% endblock %}

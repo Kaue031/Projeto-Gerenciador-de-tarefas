@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block content %}
+  <form action="/create" method="post" class="form">
+    <label>Título</label>
+    <input name="title" required>
+    <label>Descrição</label>
+    <textarea name="desc"></textarea>
+    <button class="btn" type="submit">Criar</button>
+  </form>
+{% endblock %}
