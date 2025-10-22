@@ -1,0 +1,131 @@
+name: CI - Full project checks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  full-checks:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.10, 3.11]
+        node-version: [18]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Upgrade pip and install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
+          # ferramentas de lint/test para CI
+          pip install flake8 pytest --upgrade
+
+      - name: Python: flake8 lint (se houver .py)
+        run: |
+          shopt -s globstar
+          PY_FILES=(**/*.py)
+          if [ ${#PY_FILES[@]} -gt 0 ]; then
+            echo "Arquivos Python detectados, rodando flake8..."
+            # Ajuste as regras do flake8 conforme necessário
+            flake8 || (echo "flake8 encontrou problemas" && exit 1)
+          else
+            echo "Nenhum arquivo .py encontrado - pulando flake8."
+          fi
+
+      - name: Python: smoke test (import flask and check GET /)
+        run: |
+          python - <<'PY'
+import sys
+try:
+    import flask
+    from app import app
+    client = app.test_client()
+    resp = client.get('/')
+    if resp.status_code != 200:
+        print('Smoke test falhou: / retornou', resp.status_code)
+        sys.exit(2)
+    print('Smoke test OK: / retornou 200')
+except Exception as e:
+    print('Erro no smoke test:', e)
+    sys.exit(1)
+PY
+
+      - name: Python: run pytest (se existir)
+        run: |
+          if [ -d "tests" ] || [ -f "pytest.ini" ] || ls **/test_*.py 1> /dev/null 2>&1; then
+            echo "Executando pytest..."
+            pytest -q || (echo "pytest falhou" && exit 1)
+          else
+            echo "Nenhum teste pytest detectado - pulando."
+          fi
+
+      - name: Prepare for HTML/CSS checks (npm deps)
+        run: |
+          # Vamos instalar ferramentas dev localmente em um diretório temporário dentro do runner
+          TMPNODE=./.ci_node_tools
+          mkdir -p $TMPNODE
+          cd $TMPNODE
+          # inicializa package.json temporário para dependências (evita poluir repo)
+          npm init -y >/dev/null 2>&1
+          npm install --no-audit --no-fund stylelint stylelint-config-standard htmlhint >/dev/null 2>&1 || true
+          cd -
+
+      - name: HTML: htmlhint (se houver templates)
+        run: |
+          shopt -s globstar
+          HTML_FILES=(templates/**/*.html)
+          if [ ${#HTML_FILES[@]} -gt 0 ]; then
+            echo "Arquivos HTML detectados: rodando htmlhint..."
+            # Usa o binário instalado no .ci_node_tools
+            npx --yes --package ./.ci_node_tools/node_modules htmlhint "templates/**/*.html" || (echo "htmlhint encontrou problemas" && exit 1)
+          else
+            echo "Nenhum HTML em templates/ - pulando htmlhint."
+          fi
+
+      - name: CSS: stylelint (se houver CSS)
+        run: |
+          shopt -s globstar
+          CSS_FILES=(static/**/*.css)
+          if [ ${#CSS_FILES[@]} -gt 0 ]; then
+            echo "Arquivos CSS detectados: rodando stylelint..."
+            # Cria um arquivo de configuração padrão temporário se não existir
+            if [ ! -f .stylelintrc.json ]; then
+              cat > .stylelintrc.json <<'JSON'
+{
+  "extends": "stylelint-config-standard",
+  "rules": {}
+}
+JSON
+            fi
+            npx --yes --package ./.ci_node_tools/node_modules stylelint "static/**/*.css" || (echo "stylelint encontrou problemas" && exit 1)
+          else
+            echo "Nenhum CSS em static/ - pulando stylelint."
+          fi
+
+      - name: Cleanup temp node tools
+        if: always()
+        run: |
+          rm -rf ./.ci_node_tools || true
